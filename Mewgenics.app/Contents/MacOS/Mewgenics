@@ -1,0 +1,47 @@
+#!/bin/bash
+# Mewgenics macOS 启动器（Wine 封装）
+set -u
+
+APP="$(cd "$(dirname "$0")/../.." && pwd)"
+GAME="$APP/Contents/Resources/game"
+LOG="$HOME/Library/Logs/Mewgenics.log"
+mkdir -p "$(dirname "$LOG")"
+
+say() { /usr/bin/osascript -e "display dialog \"$1\" buttons {\"好\"} default button 1 with icon caution" >/dev/null 2>&1 || echo "$1"; }
+
+# 1) 找游戏目录
+if [ ! -f "$GAME/Mewgenics.exe" ]; then
+  for p in "$HOME/Mewgenics" "/Applications/Mewgenics" "$HOME/Games/Mewgenics"; do
+    if [ -f "$p/Mewgenics.exe" ]; then GAME="$p"; break; fi
+  done
+fi
+if [ ! -f "$GAME/Mewgenics.exe" ]; then
+  say "没找到 Mewgenics.exe。请把游戏整个文件夹放到「文稿/Mewgenics」里，或跑一次 构建.command。"
+  exit 1
+fi
+
+# 2) 找 Wine
+WINE=""
+for c in "$(command -v wine64 2>/dev/null)" "$(command -v wine 2>/dev/null)" \
+         "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine" \
+         "/Applications/Whisky.app/Contents/Resources/Libraries/Wine/bin/wine64"; do
+  if [ -n "$c" ] && [ -x "$c" ]; then WINE="$c"; break; fi
+done
+if [ -z "$WINE" ]; then
+  say "没有检测到 Wine。请先安装：brew install --cask --no-quarantine wine-stable，或安装 CrossOver / Whisky，然后再打开本游戏。"
+  exit 1
+fi
+
+# 3) 前缀
+export WINEPREFIX="$HOME/Library/Application Support/Mewgenics"
+export WINEDEBUG="${WINEDEBUG:--all}"
+export WINEARCH=win64
+if [ ! -d "$WINEPREFIX" ]; then
+  "$WINE" wineboot -u >>"$LOG" 2>&1
+  # 让 Wine 把 OpenGL 直接交给 macOS 驱动（不要用 D3D 转译）
+  "$WINE" reg add "HKCU\\Software\\Wine\\Direct3D" /v renderer /d gl /f >>"$LOG" 2>&1
+fi
+
+cd "$GAME" || exit 1
+echo "== $(date) 启动 Mewgenics ($WINE)" >>"$LOG"
+exec "$WINE" Mewgenics.exe "$@" >>"$LOG" 2>&1
